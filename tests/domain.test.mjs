@@ -6,6 +6,7 @@ import {
   parseDate,
   parseMoney,
   todayInBrazil,
+  parseDateValue,
 } from "../shared/domain.js";
 
 test("valores BRL, decimais, negativos e ausentes não se confundem", () => {
@@ -19,6 +20,27 @@ test("valores BRL, decimais, negativos e ausentes não se confundem", () => {
   assert.equal(parseMoney("pendente"), null);
   assert.equal(parseMoney("-"), null);
   assert.equal(parseMoney("-", { dashIsZero: true }), 0);
+  assert.equal(parseMoney(" R$  -   ", { dashIsZero: true }), 0);
+  assert.equal(parseMoney(" R$  -   "), 0);
+});
+
+test("vigências informadas por mês preservam precisão e cobrem o mês inteiro", () => {
+  assert.deepEqual(parseDateValue("jul.-25"), {
+    date: "2025-07-01",
+    precision: "month",
+  });
+  assert.deepEqual(parseDateValue("mai/26", { endOfMonth: true }), {
+    date: "2026-05-31",
+    precision: "month",
+  });
+  assert.deepEqual(parseDateValue("ag/25"), {
+    date: "2025-08-01",
+    precision: "month",
+  });
+  assert.deepEqual(parseDateValue("fev.-24", { endOfMonth: true }), {
+    date: "2024-02-29",
+    precision: "month",
+  });
 });
 
 test("datas brasileiras, datas do Excel e datas inválidas", () => {

@@ -14,6 +14,9 @@ import {
   synchronize,
 } from "../server/sync.mjs";
 import { config as schedule } from "../netlify/functions/sync-daily.mjs";
+import { aggregate, parseMoney } from "../shared/domain.js";
+import { createCSV } from "../src/format.js";
+import { Readable } from "node:stream";
 
 const headers = [
   "Unidade",
@@ -133,13 +136,109 @@ test("rota pública aceita XLSX do Google Sheets e arquivo do Drive", async () =
   const seen = [];
   const result = await downloadSheet({}, async (url) => {
     seen.push(url);
-    return seen.length === 1
+    return seen.length < 3
       ? new Response("Forbidden", { status: 403 })
       : new Response(bytes);
   });
   assert.equal((await parseWorkbook(result)).records.length, 2);
-  assert.equal(seen.length, 2);
-  assert.match(seen[1], /drive.google.com/);
+  assert.equal(seen.length, 3);
+  assert.match(seen[2], /drive.google.com/);
+});
+
+test("tabela pública preserva células mescladas, parcelas, meses e unidades sem valores", async () => {
+  const html = `<div class="docs-sheet-tab-caption">Planilha1</div><table class="waffle"><tbody>
+    <tr><td>UNIDADE</td><td>MUNICÍPIO</td><td>PROCESSO</td><td>VALOR MENSAL</td><td>EMPENHADO</td><td>A EMPENHAR</td><td>GLOSA</td><td>PARCELAS</td><td>VIGÊNCIA INÍCIO</td><td>VIGÊNCIA FIM</td></tr>
+    <tr><td rowspan="2">Hospital A</td><td rowspan="2">Goiânia</td><td rowspan="2">123</td><td>R$ 100,00</td><td>R$ 600,00</td><td>R$ -</td><td>R$ -</td><td>jan - jun</td><td rowspan="2">mai/26</td><td rowspan="2">abr.-27</td></tr>
+    <tr><td>R$ 200,00</td><td>R$ 800,00</td><td>R$ 70,00</td><td>R$ -</td><td>jul - dez</td></tr>
+    <tr><td>Hospital B</td><td>Rio Verde</td><td>456</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+  </tbody></table>`;
+  const bytes = await downloadSheet({}, async (url) =>
+    url.endsWith("/edit")
+      ? new Response(html)
+      : new Response("Forbidden", { status: 403 }),
+  );
+  assert.equal(bytes.format, "html");
+  const parsed = await parseWorkbook(bytes);
+  assert.equal(parsed.records.length, 3);
+  assert.equal(parsed.records[1].unit, "Hospital A");
+  assert.equal(parsed.records[1].process, "123");
+  assert.equal(parsed.records[1].monthly, 200);
+  assert.equal(parsed.records[1].installments, "jul - dez");
+  assert.equal(parsed.records[1].start, "2026-05-01");
+  assert.equal(parsed.records[1].end, "2027-04-30");
+  assert.equal(parsed.records[1].endPrecision, "month");
+  assert.equal(parsed.records[0].remaining, 0);
+  assert.equal(parsed.records[0].deduction, 0);
+  assert.equal(parsed.records[2].monthly, null);
+  assert.equal(parsed.warnings.length, 1);
+});
+
+test("linhas de continuação preservam a identidade da unidade e não atravessam separadores", async () => {
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet("Dados");
+  sheet.addRow(headers);
+  sheet.addRow([
+    "Hospital A",
+    "Goiânia",
+    100,
+    500,
+    "-",
+    0,
+    "jan.-26",
+    "dez.-26",
+  ]);
+  sheet.addRow(["", "", 200, 300, 50, 0, "fev.-26", "jan.-27"]);
+  sheet.addRow([]);
+  sheet.addRow(["", "", 1000, 2000, 30]);
+  const parsed = await parseWorkbook(await workbook.xlsx.writeBuffer());
+  assert.equal(parsed.records.length, 2);
+  assert.equal(parsed.records[1].unit, "Hospital A");
+  assert.equal(parsed.records[1].municipality, "Goiânia");
+  assert.ok(
+    parsed.warnings.some((w) => w.includes("sem unidade identificável")),
+  );
+});
+
+test("glosa em uma célula mesclada é contada uma vez, inclusive no CSV exportado", async () => {
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet("Dados");
+  sheet.addRow(headers);
+  sheet.addRow([
+    "Hospital A",
+    "Goiânia",
+    100,
+    200,
+    "-",
+    300,
+    "jan.-26",
+    "dez.-26",
+  ]);
+  sheet.addRow([
+    "Hospital A",
+    "Goiânia",
+    150,
+    250,
+    "-",
+    null,
+    "jan.-26",
+    "dez.-26",
+  ]);
+  sheet.mergeCells("F2:F3");
+  const parsed = await parseWorkbook(await workbook.xlsx.writeBuffer());
+  assert.equal(parsed.records[1].deduction, 300);
+  assert.equal(aggregate(parsed.records).deduction, 300);
+  assert.equal(aggregate(parsed.records).missing.deduction, 0);
+  assert.equal(aggregate([parsed.records[1]]).deduction, 300);
+  const exported = new ExcelJS.Workbook();
+  const csv = await exported.csv.read(
+    Readable.from([createCSV(parsed.records)]),
+    { parserOptions: { delimiter: ";" }, map: (value) => value },
+  );
+  let total = 0;
+  csv.eachRow((row, index) => {
+    if (index > 1) total += parseMoney(row.getCell(8).value) || 0;
+  });
+  assert.equal(total, 300);
 });
 
 test("conta de serviço assina JWT válido e limita autorização ao Google", async () => {

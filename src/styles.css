@@ -2144,3 +2144,57 @@ tbody tr:hover {
     animation: none !important;
   }
 }
+.filter-bar.has-installments {
+  flex-wrap: wrap;
+  row-gap: 12px;
+}
+.has-installments .select-field {
+  min-width: 135px;
+}
+.has-installments .search-field {
+  min-width: 175px;
+}
+.detail-process {
+  font-size: 10px;
+  color: #91a17d;
+  margin-top: 9px;
+}
+.record-financials {
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+  padding-top: 13px;
+  border-top: 1px solid #dde7cf;
+}
+.record-financials span {
+  display: block;
+  font-size: 8px;
+  color: #9bac88;
+  margin-bottom: 5px;
+}
+.record-financials strong {
+  display: block;
+  font-size: 10px;
+  font-weight: 550;
+  color: #6d8a51;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 760px) {
+  .has-installments .select-field {
+    flex: 1 1 calc(50% - 14px);
+    min-width: 120px;
+  }
+  .record-financials {
+    grid-template-columns: 1fr 1fr;
+  }
+  .record-financials strong {
+    font-size: 10px;
+  }
+}
+@media (max-width: 760px) {
+  .metric-value {
+    font-size: clamp(14px, 4vw, 20px);
+    letter-spacing: -0.6px;
+  }
+}

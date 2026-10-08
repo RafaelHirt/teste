@@ -36,6 +36,7 @@ import GoiasMap, { municipalityKey, municipalityNames } from "./GoiasMap.jsx";
 import {
   compactMoney,
   dateLabel,
+  recordDateLabel,
   downloadCSV,
   money,
   timestampLabel,
@@ -159,6 +160,9 @@ function UnitDetails({ unit, onClose }) {
           <MapPin size={14} />
           {unit.municipality || "Município não informado"}
         </p>
+        {unit.rows[0].process && (
+          <p className="detail-process">Processo {unit.rows[0].process}</p>
+        )}
         <div className="detail-metrics">
           {METRICS.map((metric) => (
             <div key={metric.field}>
@@ -179,14 +183,18 @@ function UnitDetails({ unit, onClose }) {
           {unit.rows.map((row, index) => (
             <article key={row.id}>
               <div>
-                <strong>Registro {index + 1}</strong>
+                <strong>
+                  {row.installments
+                    ? `Parcelas: ${row.installments}`
+                    : `Registro ${index + 1}`}
+                </strong>
                 <span className={`status-badge ${contractStatus(row)}`}>
                   {STATUS_LABELS[contractStatus(row)]}
                 </span>
               </div>
               <p>
-                {dateLabel(row.start)} <ArrowRight size={13} />{" "}
-                {dateLabel(row.end)}
+                {recordDateLabel(row, "start")} <ArrowRight size={13} />{" "}
+                {recordDateLabel(row, "end")}
               </p>
               <p>
                 <span>A empenhar</span>
@@ -198,6 +206,17 @@ function UnitDetails({ unit, onClose }) {
                   </span>
                 )}
               </p>
+              <div className="record-financials">
+                {["monthly", "committed", "deduction"].map((field) => (
+                  <div key={field}>
+                    <span>
+                      {METRICS.find((metric) => metric.field === field).label}
+                      {row.sharedFields?.includes(field) && " · compartilhada"}
+                    </span>
+                    <strong>{money(row[field])}</strong>
+                  </div>
+                ))}
+              </div>
             </article>
           ))}
         </div>
@@ -214,6 +233,7 @@ export default function App() {
   const [municipality, setMunicipality] = useState("");
   const [unit, setUnit] = useState("");
   const [status, setStatus] = useState("");
+  const [installments, setInstallments] = useState("");
   const [sort, setSort] = useState("monthly");
   const [page, setPage] = useState(1);
   const [detail, setDetail] = useState(null);
@@ -257,9 +277,16 @@ export default function App() {
   }, [demo]);
   useEffect(() => {
     setPage(1);
-  }, [search, municipality, unit, status, sort]);
+  }, [search, municipality, unit, status, sort, installments]);
 
   const records = data?.records ?? [];
+  const installmentOptions = [
+    ...new Map(
+      records
+        .filter((r) => r.installments)
+        .map((r) => [normalize(r.installments), r.installments]),
+    ).values(),
+  ];
   const cities = [
     ...new Set(records.map((r) => r.municipality).filter(Boolean)),
   ].sort((a, b) => a.localeCompare(b, "pt-BR"));
@@ -283,12 +310,14 @@ export default function App() {
               municipalityKey(municipality)) &&
           (!unit || r.unit === unit) &&
           (!status || contractStatus(r) === status) &&
+          (!installments ||
+            normalize(r.installments) === normalize(installments)) &&
           (!search ||
             normalize(`${r.unit} ${r.municipality}`).includes(
               normalize(search),
             )),
       ),
-    [records, municipality, unit, status, search],
+    [records, municipality, unit, status, search, installments],
   );
   const totals = aggregate(filtered);
   const globalTotals = aggregate(records);
@@ -318,7 +347,9 @@ export default function App() {
   const expiredSoon = filtered.filter(
     (r) => contractStatus(r) === "expiring",
   ).length;
-  const filtersActive = Boolean(search || municipality || unit || status);
+  const filtersActive = Boolean(
+    search || municipality || unit || status || installments,
+  );
   const selectCity = (value) => {
     setMunicipality(
       cities.find((city) => municipalityKey(city) === municipalityKey(value)) ||
@@ -331,6 +362,7 @@ export default function App() {
     setMunicipality("");
     setUnit("");
     setStatus("");
+    setInstallments("");
   };
   const chooseView = (value) => {
     setView(value);
@@ -512,7 +544,10 @@ export default function App() {
                 : `Última leitura: ${timestampLabel(data?.updatedAt)}`}
             </span>
           </div>
-          <section className="filter-bar" aria-label="Filtros do painel">
+          <section
+            className={`filter-bar ${installmentOptions.length ? "has-installments" : ""}`}
+            aria-label="Filtros do painel"
+          >
             <div className="filter-icon">
               <SlidersHorizontal size={17} />
             </div>
@@ -560,6 +595,22 @@ export default function App() {
               </select>
               <ChevronDown size={14} />
             </label>
+            {installmentOptions.length > 0 && (
+              <label className="select-field">
+                <span>Parcelas</span>
+                <select
+                  aria-label="Parcelas"
+                  value={installments}
+                  onChange={(event) => setInstallments(event.target.value)}
+                >
+                  <option value="">Todas as parcelas</option>
+                  {installmentOptions.map((label) => (
+                    <option key={label}>{label}</option>
+                  ))}
+                </select>
+                <ChevronDown size={14} />
+              </label>
+            )}
             <label className="search-field">
               <Search size={16} />
               <input
@@ -709,12 +760,16 @@ export default function App() {
                     <div className="period-dates">
                       <div>
                         <span>Primeiro início</span>
-                        <strong>{dateLabel(totals.start)}</strong>
+                        <strong>
+                          {dateLabel(totals.start, totals.startPrecision)}
+                        </strong>
                       </div>
                       <ArrowRight size={18} />
                       <div>
                         <span>Último término</span>
-                        <strong>{dateLabel(totals.end)}</strong>
+                        <strong>
+                          {dateLabel(totals.end, totals.endPrecision)}
+                        </strong>
                       </div>
                     </div>
                     <div className="period-note">
@@ -824,8 +879,10 @@ export default function App() {
                           <td>{money(row.deduction)}</td>
                           <td>
                             <div className="table-dates">
-                              {dateLabel(row.start)}
-                              <span>até {dateLabel(row.end)}</span>
+                              {dateLabel(row.start, row.startPrecision)}
+                              <span>
+                                até {dateLabel(row.end, row.endPrecision)}
+                              </span>
                             </div>
                             <span
                               className={`status-badge ${row.rows.length === 1 ? contractStatus(row.rows[0]) : "unknown"}`}
@@ -915,6 +972,13 @@ export default function App() {
                     <strong>Vigência:</strong> primeiro início e último término
                     da seleção. Unidades com vários registros podem ter
                     vigências distintas; consulte os detalhes.
+                  </p>
+                  <p>
+                    <strong>Valor mensal:</strong> soma das linhas selecionadas,
+                    que podem representar parcelas e vigências diferentes. Use
+                    os filtros de parcelas e vigência para delimitar a seleção.
+                    Datas por mês são exibidas sem inventar dias de início ou
+                    término.
                   </p>
                   <p>
                     <strong>Atualização:</strong> o servidor consulta o arquivo

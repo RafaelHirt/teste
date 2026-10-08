@@ -136,3 +136,109 @@ test("versão móvel mantém filtros e conteúdo sem rolagem horizontal da pági
     ),
   ).toBeTruthy();
 });
+
+test("parcelas separam registros da unidade, preservam ausência de valores e datas mensais", async ({
+  page,
+}) => {
+  const data = {
+    ...demoSnapshot(),
+    source: { kind: "google", tab: "Planilha1" },
+    updatedAt: "2026-10-08T09:00:00Z",
+    records: [
+      {
+        id: "1",
+        unit: "Hospital A",
+        municipality: "Goiânia",
+        monthly: 100,
+        committed: 500,
+        remaining: 0,
+        deduction: 0,
+        installments: "jan - jun",
+        start: "2026-01-01",
+        end: "2026-06-30",
+        startPrecision: "month",
+        endPrecision: "month",
+      },
+      {
+        id: "2",
+        unit: "Hospital A",
+        municipality: "Goiânia",
+        monthly: 200,
+        committed: 300,
+        remaining: 20,
+        deduction: 0,
+        installments: "jul - dez",
+        start: "2026-07-01",
+        end: "2026-12-31",
+        startPrecision: "month",
+        endPrecision: "month",
+      },
+      {
+        id: "3",
+        unit: "Hospital B",
+        municipality: "Rio Verde",
+        monthly: null,
+        committed: null,
+        remaining: null,
+        deduction: null,
+        start: null,
+        end: null,
+      },
+    ],
+  };
+  await page.route("**/api/dashboard", (route) =>
+    route.fulfill({ json: data }),
+  );
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  await expect(page.locator(".metric-value").first()).toHaveText("R$ 300,00");
+  await expect(
+    page.getByText("1 registro sem valor · total parcial").first(),
+  ).toBeVisible();
+  await page.getByLabel("Parcelas", { exact: true }).selectOption("jul - dez");
+  await expect(page.locator(".metric-value").first()).toHaveText("R$ 200,00");
+  await expect(page.locator("tbody tr")).toHaveCount(1);
+  await page.getByRole("button", { name: "Detalhes de Hospital A" }).click();
+  await expect(
+    page.getByRole("dialog").getByText("Parcelas: jul - dez"),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("dialog").getByText("jul. de 2026"),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Fechar detalhes" }).click();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBeTruthy();
+});
+
+test("valores de centenas de milhões cabem nos cartões no celular", async ({
+  page,
+}) => {
+  const snapshot = demoSnapshot();
+  snapshot.records = [
+    {
+      ...snapshot.records[0],
+      monthly: 46503700.76,
+      committed: 257278648.64,
+      remaining: 32338185.65,
+      deduction: 40541053.54,
+    },
+  ];
+  await page.route("**/api/dashboard", (route) =>
+    route.fulfill({ json: snapshot }),
+  );
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  await expect(page.locator(".metric-value").nth(1)).toHaveText(
+    "R$ 257.278.648,64",
+  );
+  expect(
+    await page
+      .locator(".metric-value")
+      .evaluateAll((elements) =>
+        elements.every((e) => e.scrollWidth <= e.clientWidth),
+      ),
+  ).toBeTruthy();
+});

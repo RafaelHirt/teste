@@ -57,7 +57,7 @@ export async function serviceAccountToken(rawCredentials, fetcher = fetch) {
   return body.access_token;
 }
 
-async function readLimited(response) {
+async function readLimited(response, { html = false } = {}) {
   if (Number(response.headers.get("content-length")) > MAX_FILE_SIZE)
     throw new Error("Planilha excede o limite de 20 MB.");
   const reader = response.body.getReader();
@@ -74,6 +74,11 @@ async function readLimited(response) {
     chunks.push(Buffer.from(value));
   }
   const buffer = Buffer.concat(chunks);
+  if (html) {
+    if (!buffer.toString("utf8").includes('class="waffle'))
+      throw new Error("A página não contém a tabela pública da planilha.");
+    return buffer;
+  }
   if (buffer[0] !== 0x50 || buffer[1] !== 0x4b)
     throw new Error(
       "O arquivo não está disponível como XLSX. A planilha pode exigir login ou ser um Excel armazenado no Drive.",
@@ -107,16 +112,42 @@ export async function downloadSheet(env = process.env, fetcher = fetch) {
   }
   // O link informado também pode representar um XLSX armazenado no Drive.
   // Cada rota usa HTTPS e nenhum cabeçalho com credenciais é enviado a redirecionamentos.
-  const urls = [
-    `https://docs.google.com/spreadsheets/d/${id}/export?format=xlsx`,
-    `https://drive.google.com/uc?export=download&id=${id}`,
-  ];
-  for (const url of urls) {
-    try {
-      return await readLimited(await fetchChecked(url, {}, fetcher));
-    } catch {
-      /* tentar a outra rota pública */
-    }
+  try {
+    return await readLimited(
+      await fetchChecked(
+        `https://docs.google.com/spreadsheets/d/${id}/export?format=xlsx`,
+        {},
+        fetcher,
+      ),
+    );
+  } catch {
+    /* tentar a tabela pública */
+  }
+  // A tabela renderizada preserva células mescladas e valores textuais que
+  // podem ser omitidos pela inferência de tipos da exportação gviz/CSV.
+  try {
+    const response = await fetchChecked(
+      `https://docs.google.com/spreadsheets/d/${id}/edit`,
+      {},
+      fetcher,
+    );
+    return {
+      format: "html",
+      buffer: await readLimited(response, { html: true }),
+    };
+  } catch {
+    /* arquivo Excel público no Drive */
+  }
+  try {
+    return await readLimited(
+      await fetchChecked(
+        `https://drive.google.com/uc?export=download&id=${id}`,
+        {},
+        fetcher,
+      ),
+    );
+  } catch {
+    /* diagnóstico abaixo */
   }
   throw new Error(
     "Não foi possível ler a planilha. Verifique se o arquivo permite leitura por link ou configure uma conta de serviço no Netlify.",

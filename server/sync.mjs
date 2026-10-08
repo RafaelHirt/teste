@@ -20,6 +20,7 @@ export function sourceConfig(env = process.env) {
       "SHEET_COLUMNS_JSON deve mapear nomes de campos para cabeçalhos de texto.",
     );
   const config = {
+    schema: 3,
     id: env.SHEET_ID || DEFAULT_SHEET_ID,
     tab: env.SHEET_TAB || "",
     columns,
@@ -43,7 +44,12 @@ export async function synchronize(
   const snapshot = {
     ...parsed,
     updatedAt: now.toISOString(),
-    source: { kind: "google", sheetId: config.id, tab: parsed.tab },
+    source: {
+      kind: "google",
+      sheetId: config.id,
+      tab: parsed.tab,
+      format: file?.format || "xlsx",
+    },
     stale: false,
   };
   // Só substituir o último resultado após download e parsing completos.

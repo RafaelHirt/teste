@@ -4,10 +4,10 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   },
   "scripts": {
-    "dev": "node --env-file-if-exists=.env scripts/dev.mjs",
+    "dev": "node --use-env-proxy --env-file-if-exists=.env scripts/dev.mjs",
     "build": "vite build",
     "preview": "vite preview",
     "test": "node --test tests/*.test.mjs",
@@ -17,6 +17,7 @@
   "dependencies": {
     "@netlify/blobs": "11.1.4",
     "@netlify/functions": "6.0.2",
+    "cheerio": "1.2.0",
     "exceljs": "4.4.0",
     "lucide-react": "0.577.0",
     "react": "19.3.0",

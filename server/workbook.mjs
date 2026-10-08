@@ -1,7 +1,10 @@
 import ExcelJS from "exceljs";
-import { normalize, parseDate, parseMoney } from "../shared/domain.js";
+import { load } from "cheerio";
+import { normalize, parseDateValue, parseMoney } from "../shared/domain.js";
 
 const aliases = {
+  process: ["processo", "número do processo", "nº processo"],
+  installments: ["parcelas", "período das parcelas", "competência"],
   unit: [
     "unidade",
     "unidades",
@@ -115,8 +118,46 @@ function findHeader(worksheet, columns) {
 export async function parseWorkbook(buffer, { tab = "", columns = {} } = {}) {
   const workbook = new ExcelJS.Workbook();
   try {
-    await workbook.xlsx.load(buffer);
-  } catch {
+    if (buffer?.format === "html") {
+      const $ = load(buffer.buffer.toString("utf8"));
+      const tables = $("table.waffle").toArray();
+      const names = $(".docs-sheet-tab-caption")
+        .toArray()
+        .map((element) => $(element).text().trim());
+      if (!tables.length || names.length !== tables.length)
+        throw new Error(
+          "A página pública não identificou todas as abas. Use exportação XLSX ou conta de serviço.",
+        );
+      tables.forEach((table, index) => {
+        const sheet = workbook.addWorksheet(names[index]);
+        $(table)
+          .find("tbody tr")
+          .each((rowIndex, tr) => {
+            let column = 1;
+            $(tr)
+              .children("td")
+              .each((_, td) => {
+                while (sheet.getCell(rowIndex + 1, column).value != null)
+                  column++;
+                const cell = $(td);
+                const rowspan = Number(cell.attr("rowspan")) || 1;
+                const colspan = Number(cell.attr("colspan")) || 1;
+                const value = cell.text().trim();
+                if (rowspan > 1 || colspan > 1)
+                  sheet.mergeCells(
+                    rowIndex + 1,
+                    column,
+                    rowIndex + rowspan,
+                    column + colspan - 1,
+                  );
+                sheet.getCell(rowIndex + 1, column).value = value;
+                column += colspan;
+              });
+          });
+      });
+    } else await workbook.xlsx.load(buffer);
+  } catch (error) {
+    if (buffer?.format === "html") throw error;
     throw new Error(
       "O Google não retornou um arquivo XLSX válido. Verifique o acesso ao arquivo e o SHEET_ID.",
     );
@@ -140,7 +181,9 @@ export async function parseWorkbook(buffer, { tab = "", columns = {} } = {}) {
   const { worksheet, header } = candidates[0];
   const warnings = [];
   const records = [];
+  let previousIdentity = null;
   for (const field of Object.keys(aliases)) {
+    if (["process", "installments"].includes(field)) continue;
     if (!header.fields[field])
       warnings.push(
         `Coluna de ${field} não encontrada; o indicador ficará sem informação.`,
@@ -152,9 +195,21 @@ export async function parseWorkbook(buffer, { tab = "", columns = {} } = {}) {
       header.fields[field]
         ? cellValue(row.getCell(header.fields[field]))
         : null;
-    const unit = String(get("unit") ?? "").trim();
-    if (!unit || /^(total|subtotal|resumo|somat[oó]rio)(?:\s|$|:)/i.test(unit))
+    let unit = String(get("unit") ?? "").trim();
+    const financialPresent = [
+      "monthly",
+      "committed",
+      "remaining",
+      "deduction",
+    ].some((field) => get(field) != null && String(get(field)).trim());
+    if (!unit && !financialPresent) {
+      previousIdentity = null;
       continue;
+    }
+    if (/^(total|subtotal|resumo|somat[oó]rio)(?:\s|$|:)/i.test(unit)) {
+      previousIdentity = null;
+      continue;
+    }
     if (
       normalize(unit) ===
       normalize(
@@ -162,14 +217,39 @@ export async function parseWorkbook(buffer, { tab = "", columns = {} } = {}) {
       )
     )
       continue;
+    const municipality = String(get("municipality") ?? "").trim();
+    const process = String(get("process") ?? "").trim();
+    if (!unit) {
+      if (
+        !previousIdentity ||
+        (process && process !== previousIdentity.process) ||
+        (municipality &&
+          normalize(municipality) !== normalize(previousIdentity.municipality))
+      ) {
+        warnings.push(
+          `Linha ${line}: valores sem unidade identificável; linha não incluída.`,
+        );
+        continue;
+      }
+      unit = previousIdentity.unit;
+    } else previousIdentity = { unit, municipality, process };
     const record = {
       id: `${worksheet.id}-${line}`,
       unit,
-      municipality: String(get("municipality") ?? "").trim(),
+      municipality: municipality || previousIdentity.municipality,
+      process: process || previousIdentity.process,
+      installments: String(get("installments") ?? "").trim(),
+      moneyKeys: {},
+      sharedFields: [],
       sourceRow: line,
     };
     for (const field of ["monthly", "committed", "remaining", "deduction"]) {
       const raw = get(field);
+      if (header.fields[field]) {
+        const cell = row.getCell(header.fields[field]);
+        record.moneyKeys[field] = `${worksheet.id}:${cell.master.address}`;
+        if (cell.isMerged) record.sharedFields.push(field);
+      }
       record[field] = parseMoney(raw, { dashIsZero: field === "remaining" });
       if (
         raw != null &&
@@ -181,7 +261,22 @@ export async function parseWorkbook(buffer, { tab = "", columns = {} } = {}) {
     }
     for (const field of ["start", "end"]) {
       const raw = get(field);
-      record[field] = parseDate(raw);
+      const format = header.fields[field]
+        ? row.getCell(header.fields[field]).numFmt || ""
+        : "";
+      const parsed = parseDateValue(raw, {
+        endOfMonth: field === "end",
+        monthFormat:
+          /m/i.test(format) && /y/i.test(format) && !/d/i.test(format),
+      });
+      record[field] = parsed.date;
+      record[`${field}Precision`] = parsed.precision;
+      record[`${field}Raw`] =
+        raw == null
+          ? ""
+          : raw instanceof Date
+            ? raw.toISOString().slice(0, 10)
+            : String(raw).trim();
       if (raw != null && String(raw).trim() && record[field] == null)
         warnings.push(`Linha ${line}: data de ${field} não reconhecida.`);
     }
@@ -197,9 +292,8 @@ export async function parseWorkbook(buffer, { tab = "", columns = {} } = {}) {
       )
     ) {
       warnings.push(
-        `Linha ${line}: sem valores reconhecidos; linha não incluída.`,
+        `Linha ${line}: unidade ainda sem valores financeiros; mantida no painel e no mapa.`,
       );
-      continue;
     }
     records.push(record);
   }

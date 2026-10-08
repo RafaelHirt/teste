@@ -2,7 +2,7 @@
 
 Dashboard para acompanhar valores mensais, empenhos, **A Empenhar**, glosas e vigências, por unidade e no total, com mapa dos 246 municípios de Goiás. Frontend React e servidor em Netlify Functions; a planilha é consultada pelo servidor, sem expor credenciais no navegador.
 
-**Estado da integração:** o ID do arquivo informado já está configurado. A leitura desse arquivo real ainda não foi validada: a política de rede do ambiente de desenvolvimento bloqueou o Google. Os testes usam arquivos XLSX controlados. A demonstração é identificada e só aparece mediante escolha do usuário quando a leitura real falha. Os cabeçalhos e a aba definitivos devem ser conferidos assim que houver acesso.
+**Integração validada com a planilha real:** aba `Planilha1`, 51 registros, 27 unidades e 17 municípios. A API local retornou HTTP 200 com dados do Google. Os quatro totais financeiros foram conferidos independentemente com a exportação da origem. Há cinco unidades sem valores financeiros preenchidos e uma vigência com início posterior ao fim; o painel sinaliza essas pendências. A publicação e a execução diária no Netlify ainda precisam ser validadas no projeto conectado. A demonstração permanece identificada e só é usada mediante escolha do usuário quando a leitura real falha.
 
 ## Desenvolver
 
@@ -15,7 +15,7 @@ cp .env.example .env
 npm run dev
 ```
 
-O servidor de desenvolvimento atende na porta 5173 e mantém a última leitura em `.cache/` (ignorada pelo Git). A rota `/api/dashboard` executa a mesma leitura e normalização usadas no Netlify. Para explorar a interface sem acesso ao Google, use o botão **Explorar demonstração**, ou execute `npm run dev -- --demo`. O modo de demonstração não é ativado na produção.
+O comando de desenvolvimento usa o proxy HTTPS do ambiente quando presente (Node.js 24, `--use-env-proxy`), preservando TLS. O servidor atende na porta 5173 e mantém a última leitura em `.cache/` (ignorada pelo Git). A rota `/api/dashboard` executa a mesma leitura e normalização usadas no Netlify. Para explorar a interface sem acesso ao Google, use o botão **Explorar demonstração**, ou execute `npm run dev -- --demo`. O modo de demonstração não é ativado na produção.
 
 ```sh
 npm test                 # regras financeiras, XLSX, autenticação e sincronização
@@ -32,7 +32,7 @@ Se o ambiente limitar escrita no diretório pessoal, use `npm --cache /workspace
 1. No Netlify, crie um projeto importando o repositório GitHub **RafaelHirt/teste**, branch **main**.
 2. O arquivo `netlify.toml` define `npm run build`, publicação de `dist/`, funções em `netlify/functions/` e Node.js 24. Não é necessário um servidor separado.
 3. Escolha a forma de acesso ao arquivo:
-   - **Arquivo com leitura por link:** não requer credenciais. O servidor tenta a exportação XLSX do Google Sheets e o download público de um arquivo Excel do Drive.
+   - **Arquivo com leitura por link:** não requer credenciais. O servidor tenta a exportação XLSX do Google Sheets, a tabela pública renderizada (preservando as células mescladas) e o download público de um arquivo Excel do Drive. A planilha fornecida foi lida sem credenciais adicionais.
    - **Arquivo privado:** no Google Cloud, habilite **Google Drive API**, crie uma conta de serviço e compartilhe o arquivo com seu `client_email` como **Leitor**. No Netlify, adicione o JSON completo dessa conta à variável **GOOGLE_SERVICE_ACCOUNT_JSON**, com escopo **Functions**. Não adicione o JSON ao repositório, nem a variáveis `VITE_`.
 4. Se necessário, configure **SHEET_TAB** e **SHEET_COLUMNS_JSON** conforme a aba e os cabeçalhos reais. As variáveis opcionais estão descritas abaixo.
 5. Publique um deploy de produção. Após mudar as variáveis, publique um novo deploy para aplicá-las.
@@ -45,42 +45,51 @@ O front e as funções são preparados para o Netlify; a publicação do site e 
 
 ## Planilha e cabeçalhos
 
-| Variável | Finalidade |
-| --- | --- |
-| `SHEET_ID` | ID do arquivo. Padrão: `1emv6gWelcVeKFFvZQlHIC5V2d2PT2p5t`. |
-| `SHEET_TAB` | Nome exato da aba. Se houver várias abas compatíveis, é obrigatório escolher uma; elas não são somadas automaticamente. |
-| `SHEET_COLUMNS_JSON` | Mapeia campos internos para os cabeçalhos exatos da planilha. |
-| `GOOGLE_SERVICE_ACCOUNT_JSON` | Credencial de conta de serviço, apenas no servidor, para arquivos privados. |
+| Variável                      | Finalidade                                                                                                                                                |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SHEET_ID`                    | ID do arquivo. Padrão: `1emv6gWelcVeKFFvZQlHIC5V2d2PT2p5t`.                                                                                               |
+| `SHEET_TAB`                   | Nome exato da aba, `Planilha1` no arquivo fornecido. Se houver várias abas compatíveis, é obrigatório escolher uma; elas não são somadas automaticamente. |
+| `SHEET_COLUMNS_JSON`          | Mapeia campos internos para os cabeçalhos exatos da planilha.                                                                                             |
+| `GOOGLE_SERVICE_ACCOUNT_JSON` | Credencial de conta de serviço, apenas no servidor, para arquivos privados.                                                                               |
 
 O leitor procura cabeçalhos nas primeiras 40 linhas e aceita estas colunas, além de variantes usuais com ou sem acentos:
 
-| Campo interno | Cabeçalho padrão | Exibição |
-| --- | --- | --- |
-| `unit` | Unidade | Nome da unidade |
-| `municipality` | Município | Filtro e localização aproximada no mapa |
-| `monthly` | Valor Mensal | Valor mensal |
-| `committed` | Valor Empenhado | Empenhado |
-| `remaining` | A Empenhar | Saldo oficial da planilha |
-| `deduction` | Glosa | Glosa, mostrada separadamente |
-| `start` | Início da Vigência | Data inicial |
-| `end` | Fim da Vigência | Data final |
+| Campo interno  | Cabeçalho padrão   | Exibição                                |
+| -------------- | ------------------ | --------------------------------------- |
+| `unit`         | Unidade            | Nome da unidade                         |
+| `municipality` | Município          | Filtro e localização aproximada no mapa |
+| `monthly`      | Valor Mensal       | Valor mensal                            |
+| `committed`    | Valor Empenhado    | Empenhado                               |
+| `remaining`    | A Empenhar         | Saldo oficial da planilha               |
+| `deduction`    | Glosa              | Glosa, mostrada separadamente           |
+| `start`        | Início da Vigência | Data inicial                            |
+| `end`          | Fim da Vigência    | Data final                              |
 
 Exemplo de `SHEET_COLUMNS_JSON`:
 
 ```json
-{"unit":"Unidade","municipality":"Município","monthly":"Valor Mensal","committed":"Valor Empenhado","remaining":"A Empenhar","deduction":"Glosa","start":"Início da Vigência","end":"Fim da Vigência"}
+{
+  "unit": "Unidade",
+  "municipality": "Município",
+  "monthly": "Valor Mensal",
+  "committed": "Valor Empenhado",
+  "remaining": "A Empenhar",
+  "deduction": "Glosa",
+  "start": "Início da Vigência",
+  "end": "Fim da Vigência"
+}
 ```
 
-Unidade e pelo menos uma coluna financeira são necessárias para reconhecer uma tabela. Colunas ausentes geram observações e **Não informado**. Datas brasileiras (`dd/mm/aaaa`), datas do Excel e números BRL são aceitos. Fórmulas usam os resultados já salvos no arquivo: o servidor não recalcula fórmulas do Excel. Arquivos XLSX têm limite de 20 MB.
+Unidade e pelo menos uma coluna financeira são necessárias para reconhecer uma tabela. Colunas ausentes geram observações e **Não informado**. Datas brasileiras (`dd/mm/aaaa`), datas do Excel, meses como `jul.-25`, `mai/26` e números BRL são aceitos. Vigências por mês mantêm essa precisão na tela; para filtros, início e fim cobrem o mês inteiro. Fórmulas usam os resultados já salvos no arquivo: o servidor não recalcula fórmulas do Excel. Arquivos XLSX têm limite de 20 MB.
 
 ### Regras dos indicadores
 
 - **A Empenhar é lido diretamente.** Um hífen isolado `-` nessa coluna representa **0** e **100% empenhado**, conforme solicitado. Não há cálculo a partir de valor mensal, glosa, empenho ou duração da vigência.
 - Glosa aparece separadamente, conforme a coluna da planilha.
-- Valores vazios ou inválidos permanecem ausentes; não são convertidos para zero. Totais parciais são identificados.
-- Linhas identificadas como total/subtotal são excluídas para evitar dupla contagem. Cada linha válida é um registro. Registros da mesma unidade no mesmo município são agrupados na tabela; o detalhe preserva cada vigência. A aba escolhida deve conter o período desejado, sem misturar versões históricas do mesmo contrato.
+- Valores vazios ou inválidos permanecem ausentes; não são convertidos para zero. O formato contábil `R$ -` representa zero. Totais parciais são identificados, e unidades sem valores continuam na tabela e no mapa.
+- Linhas identificadas como total/subtotal são excluídas para evitar dupla contagem. Cada linha válida é um registro. Registros da mesma unidade no mesmo município são agrupados na tabela; o detalhe preserva cada vigência, parcela e processo. Células monetárias mescladas são contadas uma única vez, mesmo quando abrangem vários registros; são identificadas como compartilhadas no detalhe. A aba escolhida deve conter o período desejado, sem misturar versões históricas do mesmo contrato.
 - O painel global mostra o primeiro início e o último término da seleção. “Vence em até 60 dias” compara a vigência ao dia corrente em Brasília. Não há extrapolação de valores históricos.
-- A exportação CSV contém os registros filtrados. Conteúdo textual que possa virar fórmula ao abrir no Excel é escapado.
+- O valor mensal corresponde à soma das linhas selecionadas, sem assumir um único valor vigente quando existem várias linhas. Os filtros de parcelas e vigência delimitam a seleção. A exportação CSV contém os registros filtrados e não repete valores de células financeiras mescladas. Conteúdo textual que possa virar fórmula ao abrir no Excel é escapado.
 
 ## Mapa
 
