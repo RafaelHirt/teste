@@ -440,7 +440,7 @@ export default function App() {
             <i />
           </span>
           <span>
-            Goiás<span className="brand-subtitle">PAINEL DE UNIDADES</span>
+            Painel <span className="brand-subtitle">SUPECC Teste</span>
           </span>
         </a>
         <span className="nav-label">ACOMPANHAMENTO</span>
@@ -1150,9 +1150,7 @@ export default function App() {
             </>
           )}
           <footer className="page-footer">
-            <span>
-              Goiás <span> / </span> Painel de unidades
-            </span>
+            <span>Painel SUPECC Teste</span>
             <span>Clareza para acompanhar. Informação para decidir.</span>
           </footer>
         </main>

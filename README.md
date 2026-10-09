@@ -1,4 +1,4 @@
-# Goiás · Painel de Unidades
+# Painel SUPECC Teste
 
 Dashboard para acompanhar valores mensais, empenhos, **A Empenhar**, glosas e vigências, por unidade e no total, com mapa dos 246 municípios de Goiás. Frontend React e servidor em Netlify Functions; a planilha é consultada pelo servidor, sem expor credenciais no navegador.
 
