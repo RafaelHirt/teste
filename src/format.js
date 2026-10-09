@@ -34,6 +34,13 @@ export const timestampLabel = (value) =>
       }).format(new Date(value))
     : "Sem leitura da planilha";
 
+export const monthLabel = (value) =>
+  new Intl.DateTimeFormat("pt-BR", {
+    timeZone: "UTC",
+    month: "long",
+    year: "numeric",
+  }).format(new Date(`${value}-01T12:00:00Z`));
+
 export const recordDateLabel = (row, field) =>
   row[field]
     ? dateLabel(row[field], row[`${field}Precision`])

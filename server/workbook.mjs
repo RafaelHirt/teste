@@ -262,7 +262,7 @@ export async function parseWorkbook(buffer, { tab = "", columns = {} } = {}) {
     for (const field of ["start", "end"]) {
       const raw = get(field);
       const format = header.fields[field]
-        ? row.getCell(header.fields[field]).numFmt || ""
+        ? row.getCell(header.fields[field]).master.numFmt || ""
         : "";
       const parsed = parseDateValue(raw, {
         endOfMonth: field === "end",
@@ -285,6 +285,7 @@ export async function parseWorkbook(buffer, { tab = "", columns = {} } = {}) {
         `Linha ${line}: início posterior ao fim da vigência; datas não utilizadas.`,
       );
       record.start = record.end = null;
+      record.periodIssue = "inverted";
     }
     if (
       ["monthly", "committed", "remaining", "deduction"].every(

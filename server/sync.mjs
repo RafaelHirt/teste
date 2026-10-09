@@ -20,7 +20,7 @@ export function sourceConfig(env = process.env) {
       "SHEET_COLUMNS_JSON deve mapear nomes de campos para cabeçalhos de texto.",
     );
   const config = {
-    schema: 3,
+    schema: 4,
     id: env.SHEET_ID || DEFAULT_SHEET_ID,
     tab: env.SHEET_TAB || "",
     columns,

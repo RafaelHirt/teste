@@ -342,6 +342,30 @@ test("agendamento diário executa às 6h de Brasília, 9h UTC", () => {
   assert.equal(schedule.schedule, "0 9 * * *");
 });
 
+test("formato mensal da célula mestre é preservado nas cópias mescladas", async () => {
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet("Dados");
+  sheet.addRow(headers);
+  sheet.addRow([
+    "Hospital A",
+    "Goiânia",
+    100,
+    200,
+    0,
+    0,
+    new Date("2026-01-01T00:00:00Z"),
+    new Date("2026-12-01T00:00:00Z"),
+  ]);
+  sheet.addRow(["Hospital A", "Goiânia", 100, 300, 0, 0]);
+  sheet.mergeCells("G2:G3");
+  sheet.mergeCells("H2:H3");
+  sheet.getCell("G2").numFmt = "mmm-yy";
+  sheet.getCell("H2").numFmt = "mmm-yy";
+  const parsed = await parseWorkbook(await workbook.xlsx.writeBuffer());
+  assert.equal(parsed.records[1].end, "2026-12-31");
+  assert.equal(parsed.records[1].endPrecision, "month");
+});
+
 test("snapshot inválido nunca substitui uma leitura anterior", async () => {
   const store = memoryStore();
   await synchronize(store, { download: () => fixture() });

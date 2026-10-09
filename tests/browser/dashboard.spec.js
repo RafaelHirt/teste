@@ -1,6 +1,13 @@
 import { test, expect } from "@playwright/test";
 import { demoSnapshot } from "../../shared/demo.js";
 
+test.beforeEach(async ({ page }) => {
+  await page.clock.setFixedTime(new Date("2026-10-08T12:00:00Z"));
+  await page.route("**/api/dashboard", (route) =>
+    route.fulfill({ json: demoSnapshot(new Date("2026-10-08T12:00:00Z")) }),
+  );
+});
+
 test("dashboard mostra dados ilustrativos, mapa e todos os indicadores", async ({
   page,
 }) => {
@@ -191,10 +198,13 @@ test("parcelas separam registros da unidade, preservam ausência de valores e da
   );
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
-  await expect(page.locator(".metric-value").first()).toHaveText("R$ 300,00");
+  await expect(page.locator(".metric-value").first()).toHaveText("R$ 200,00");
   await expect(
-    page.getByText("1 registro sem valor · total parcial").first(),
+    page.getByText("1 unidade a conferir · total parcial").first(),
   ).toBeVisible();
+  await page.getByLabel("Parcelas", { exact: true }).selectOption("jan - jun");
+  await expect(page.locator(".metric-value").first()).toHaveText("R$ 200,00");
+  await expect(page.locator(".metric-value").nth(1)).toHaveText("R$ 500,00");
   await page.getByLabel("Parcelas", { exact: true }).selectOption("jul - dez");
   await expect(page.locator(".metric-value").first()).toHaveText("R$ 200,00");
   await expect(page.locator("tbody tr")).toHaveCount(1);
@@ -211,6 +221,88 @@ test("parcelas separam registros da unidade, preservam ausência de valores e da
       () => document.documentElement.scrollWidth <= innerWidth,
     ),
   ).toBeTruthy();
+});
+
+test("sobreposição e ausência de vigência ficam fora do subtotal e aparecem nas linhas", async ({
+  page,
+}) => {
+  const data = {
+    ...demoSnapshot(new Date("2026-10-08T12:00:00Z")),
+    source: { kind: "google", tab: "Planilha1" },
+    records: [
+      {
+        id: "1",
+        unit: "Hospital A",
+        municipality: "Goiânia",
+        monthly: 100,
+        committed: 500,
+        remaining: 30,
+        deduction: 0,
+        start: "2026-01-01",
+        end: "2026-12-31",
+        installments: "jan - dez",
+      },
+      {
+        id: "2",
+        unit: "Hospital A",
+        municipality: "Goiânia",
+        monthly: 200,
+        committed: 700,
+        remaining: 40,
+        deduction: 0,
+        start: "2026-07-01",
+        end: "2027-06-30",
+        installments: "jul - dez",
+      },
+      {
+        id: "3",
+        unit: "Hospital B",
+        municipality: "Rio Verde",
+        monthly: 300,
+        committed: 1000,
+        remaining: 50,
+        deduction: 0,
+        start: null,
+        end: null,
+      },
+      {
+        id: "4",
+        unit: "Hospital C",
+        municipality: "Anápolis",
+        monthly: 50,
+        committed: 100,
+        remaining: 0,
+        deduction: 0,
+        start: "2026-01-01",
+        end: "2026-12-31",
+      },
+    ],
+  };
+  await page.route("**/api/dashboard", (route) =>
+    route.fulfill({ json: data }),
+  );
+  await page.goto("/");
+  await expect(page.locator(".metric-value").first()).toHaveText("R$ 50,00");
+  await expect(page.locator(".metric-value").nth(1)).toHaveText("R$ 2.300,00");
+  await expect(page.locator(".metric-value").nth(2)).toHaveText("R$ 120,00");
+  await expect(
+    page.getByText("2 unidades a conferir · total parcial"),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Vigências sobrepostas · conferir"),
+  ).toBeVisible();
+  await expect(page.getByText("Vigência ausente · conferir")).toBeVisible();
+  await page.getByLabel("Parcelas", { exact: true }).selectOption("jan - dez");
+  await expect(page.locator(".metric-value").first()).toHaveText(
+    "Não informado",
+  );
+  await page.getByRole("button", { name: "Detalhes de Hospital A" }).click();
+  await expect(
+    page
+      .getByRole("dialog")
+      .getByText("Vigências sobrepostas · conferir")
+      .first(),
+  ).toBeVisible();
 });
 
 test("valores de centenas de milhões cabem nos cartões no celular", async ({

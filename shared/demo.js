@@ -1,5 +1,5 @@
-export function demoSnapshot() {
-  const year = new Date().getFullYear();
+export function demoSnapshot(now = new Date()) {
+  const year = now.getFullYear();
   const source = [
     [
       "Hospital Estadual de Goiânia",

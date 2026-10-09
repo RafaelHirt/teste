@@ -30,7 +30,9 @@ import {
   groupUnits,
   normalize,
   STATUS_LABELS,
+  todayInBrazil,
 } from "../shared/domain.js";
+import { monthlyOverview, MONTHLY_LABELS, unitKey } from "../shared/monthly.js";
 import { demoSnapshot } from "../shared/demo.js";
 import GoiasMap, { municipalityKey, municipalityNames } from "./GoiasMap.jsx";
 import {
@@ -40,6 +42,7 @@ import {
   downloadCSV,
   money,
   timestampLabel,
+  monthLabel,
 } from "./format.js";
 
 const sheetURL =
@@ -49,7 +52,7 @@ const METRICS = [
   {
     field: "monthly",
     label: "Valor mensal",
-    caption: "Soma dos valores mensais",
+    caption: "Valores vigentes no mês atual",
     icon: CircleDollarSign,
   },
   {
@@ -91,9 +94,13 @@ function MetricCard({ metric, totals, index, hasData }) {
             <Info size={12} />
             <span>
               {totals.missing[metric.field]}{" "}
-              {totals.missing[metric.field] === 1
-                ? "registro sem valor"
-                : "registros sem valor"}{" "}
+              {metric.field === "monthly"
+                ? totals.missing.monthly === 1
+                  ? "unidade a conferir"
+                  : "unidades a conferir"
+                : totals.missing[metric.field] === 1
+                  ? "registro sem valor"
+                  : "registros sem valor"}{" "}
               · total parcial
             </span>
           </>
@@ -171,13 +178,21 @@ function UnitDetails({ unit, onClose }) {
             </div>
           ))}
         </div>
+        <div className="monthly-detail-note">
+          <strong>Mensal de {monthLabel(unit.monthlyAssessment.month)}</strong>
+          <span>{MONTHLY_LABELS[unit.monthlyAssessment.status]}</span>
+          <p>
+            O mensal usa as vigências completas da unidade. Empenhos, saldo e
+            glosas acima correspondem aos registros selecionados.
+          </p>
+        </div>
         <h3>Vigências e registros</h3>
         <p className="detail-note">
           {unit.rows.length}{" "}
           {unit.rows.length === 1
             ? "registro na planilha"
             : "registros na planilha"}
-          . Os valores acima somam os registros desta unidade.
+          . Cada linha abaixo mantém os valores originais da planilha.
         </p>
         <div className="detail-records">
           {unit.rows.map((row, index) => (
@@ -192,6 +207,18 @@ function UnitDetails({ unit, onClose }) {
                   {STATUS_LABELS[contractStatus(row)]}
                 </span>
               </div>
+              {[
+                ...new Set(
+                  unit.monthlyAssessment.issues
+                    .filter((issue) => issue.ids.includes(row.id))
+                    .map((issue) => issue.kind),
+                ),
+              ].map((kind) => (
+                <span key={kind} className="monthly-row-warning">
+                  <Info size={12} />
+                  {MONTHLY_LABELS[kind]}
+                </span>
+              ))}
               <p>
                 {recordDateLabel(row, "start")} <ArrowRight size={13} />{" "}
                 {recordDateLabel(row, "end")}
@@ -319,18 +346,37 @@ export default function App() {
       ),
     [records, municipality, unit, status, search, installments],
   );
-  const totals = aggregate(filtered);
+  const referenceDate = todayInBrazil();
+  const monthly = monthlyOverview(filtered, {
+    source: records,
+    today: referenceDate,
+  });
+  const totals = { ...aggregate(filtered), monthly: monthly.value };
+  totals.missing.monthly = monthly.unresolved;
   const globalTotals = aggregate(records);
-  const groups = groupUnits(filtered).sort((a, b) =>
-    sort === "name"
-      ? a.unit.localeCompare(b.unit, "pt-BR")
-      : (b[sort] ?? -Infinity) - (a[sort] ?? -Infinity),
-  );
+  const groups = groupUnits(filtered)
+    .map((group) => {
+      const assessment = monthly.assessments.get(unitKey(group));
+      return {
+        ...group,
+        monthly: assessment.value,
+        monthlyAssessment: assessment,
+      };
+    })
+    .sort((a, b) =>
+      sort === "name"
+        ? a.unit.localeCompare(b.unit, "pt-BR")
+        : (b[sort] ?? -Infinity) - (a[sort] ?? -Infinity),
+    );
   const topUnits = groups
-    .filter((r) => r.monthly != null)
+    .filter((r) => r.monthlyAssessment.status === "ready")
     .sort((a, b) => b.monthly - a.monthly)
     .slice(0, 5);
   const maxMonthly = Math.max(...topUnits.map((r) => r.monthly), 1);
+  const monthlyIssueUnits = groups.filter(
+    (group) =>
+      group.monthly == null || group.monthlyAssessment.issues.length > 0,
+  );
   const maxPage = Math.max(1, Math.ceil(groups.length / PAGE_SIZE));
   const currentPage = Math.min(page, maxPage);
   const visibleRows = groups.slice(
@@ -645,6 +691,27 @@ export default function App() {
               />
             ))}
           </section>
+          {data && (
+            <div className="monthly-context">
+              <CalendarDays size={14} />
+              <span>
+                Mensal de <strong>{monthLabel(monthly.month)}</strong> ·{" "}
+                {monthly.confirmed}{" "}
+                {monthly.confirmed === 1
+                  ? "unidade com valor confirmado"
+                  : "unidades com valor confirmado"}
+              </span>
+              {monthly.unresolved > 0 && (
+                <button onClick={() => setShowNotes(true)}>
+                  <Info size={13} />
+                  {monthly.unresolved}{" "}
+                  {monthly.unresolved === 1
+                    ? "unidade a conferir"
+                    : "unidades a conferir"}
+                </button>
+              )}
+            </div>
+          )}
           {!data && (
             <div className="empty-loading">
               {loading ? (
@@ -684,6 +751,8 @@ export default function App() {
                   </div>
                   <GoiasMap
                     records={filtered}
+                    source={records}
+                    referenceDate={referenceDate}
                     selected={municipality}
                     onSelect={selectCity}
                   />
@@ -704,7 +773,10 @@ export default function App() {
                     <div className="panel-heading">
                       <div>
                         <h2>Valores por unidade</h2>
-                        <p>Maiores valores mensais na seleção</p>
+                        <p>
+                          Maiores mensais confirmados em{" "}
+                          {monthLabel(monthly.month)}
+                        </p>
                       </div>
                       <span className="panel-icon">
                         <ArrowUpRight size={17} />
@@ -857,7 +929,22 @@ export default function App() {
                               </span>
                             </button>
                           </td>
-                          <td className="money-cell">{money(row.monthly)}</td>
+                          <td className="money-cell">
+                            {money(row.monthly)}
+                            {row.monthlyAssessment.status !== "ready" && (
+                              <span
+                                className={`monthly-cell-note ${row.monthly == null ? "pending" : ""}`}
+                              >
+                                {MONTHLY_LABELS[row.monthlyAssessment.status]}
+                              </span>
+                            )}
+                            {row.monthlyAssessment.status === "ready" &&
+                              row.monthlyAssessment.issues.length > 0 && (
+                                <span className="monthly-cell-note pending">
+                                  Há vigências a conferir
+                                </span>
+                              )}
+                          </td>
                           <td>{money(row.committed)}</td>
                           <td>
                             <span
@@ -957,15 +1044,64 @@ export default function App() {
               </div>
               {showNotes && (
                 <section className="notes-panel">
+                  {monthlyIssueUnits.length > 0 && (
+                    <>
+                      <h3>Mensais a conferir · {monthLabel(monthly.month)}</h3>
+                      <ul>
+                        {monthlyIssueUnits.map((group) => {
+                          const kinds = [
+                            ...new Set(
+                              group.monthlyAssessment.issues.map(
+                                (issue) => issue.kind,
+                              ),
+                            ),
+                          ];
+                          const ids = new Set(
+                            group.monthlyAssessment.issues.flatMap(
+                              (issue) => issue.ids,
+                            ),
+                          );
+                          const lines = records
+                            .filter(
+                              (row) =>
+                                unitKey(row) === unitKey(group) &&
+                                ids.has(row.id),
+                            )
+                            .map((row) => row.sourceRow)
+                            .filter(Boolean);
+                          return (
+                            <li key={unitKey(group)}>
+                              <button
+                                className="monthly-issue-button"
+                                onClick={() => setDetail(group)}
+                              >
+                                {group.unit}
+                              </button>{" "}
+                              —{" "}
+                              {kinds.length
+                                ? kinds
+                                    .map((kind) => MONTHLY_LABELS[kind])
+                                    .join("; ")
+                                : MONTHLY_LABELS[
+                                    group.monthlyAssessment.status
+                                  ]}
+                              {lines.length > 0 &&
+                                ` · linhas ${[...new Set(lines)].join(", ")}`}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </>
+                  )}
                   <p>
                     <strong>A empenhar:</strong> valor da coluna “A Empenhar”. O
                     símbolo “-” indica saldo zero e 100% empenhado. Nenhum saldo
                     é recalculado.
                   </p>
                   <p>
-                    <strong>Totais:</strong> soma dos registros da aba
-                    selecionada. Valores ausentes são indicados; não são
-                    tratados como zero. Linhas de total e subtotal são
+                    <strong>Empenhos, A Empenhar e glosas:</strong> soma dos
+                    registros selecionados. Valores ausentes são indicados; não
+                    são tratados como zero. Linhas de total e subtotal são
                     excluídas.
                   </p>
                   <p>
@@ -974,11 +1110,16 @@ export default function App() {
                     vigências distintas; consulte os detalhes.
                   </p>
                   <p>
-                    <strong>Valor mensal:</strong> soma das linhas selecionadas,
-                    que podem representar parcelas e vigências diferentes. Use
-                    os filtros de parcelas e vigência para delimitar a seleção.
-                    Datas por mês são exibidas sem inventar dias de início ou
-                    término.
+                    <strong>Valor mensal:</strong> usa apenas a vigência do mês
+                    atual em Brasília. Linhas históricas e futuras não são
+                    somadas. Vigências ausentes, inválidas ou sobrepostas são
+                    sinalizadas; unidades com valor indefinido ficam fora do
+                    subtotal, que é identificado como parcial. Uma mesma célula
+                    mensal mesclada é contada uma única vez. Os filtros
+                    selecionam unidades, mas não escondem conflitos existentes
+                    em outras linhas da mesma unidade. Parcelas e vigência
+                    delimitam os demais indicadores e o CSV, que preserva os
+                    valores originais por linha.
                   </p>
                   <p>
                     <strong>Atualização:</strong> o servidor consulta o arquivo

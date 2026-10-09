@@ -2198,3 +2198,95 @@ tbody tr:hover {
     letter-spacing: -0.6px;
   }
 }
+.monthly-context {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 10px;
+  color: #859775;
+  margin: -10px 0 23px;
+  flex-wrap: wrap;
+}
+.monthly-context strong {
+  font-weight: 600;
+  color: #69834f;
+}
+.monthly-context button {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #a28b4f;
+  font-size: 10px;
+  padding: 4px 0;
+}
+.monthly-cell-note {
+  display: block;
+  font-size: 7px;
+  line-height: 1.6;
+  font-weight: 400;
+  color: #91a17c;
+  margin-top: 6px;
+  white-space: normal;
+  max-width: 145px;
+}
+.monthly-cell-note.pending {
+  color: #ab945e;
+}
+.monthly-row-warning {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 9px;
+  color: #ad965c;
+  margin-top: 11px;
+}
+.monthly-detail-note {
+  padding: 13px 15px;
+  border-radius: 6px;
+  border: 1px solid #e4e9d9;
+  background: #f4f7ed;
+  margin: 0 0 20px;
+}
+.monthly-detail-note strong {
+  display: block;
+  font-size: 11px;
+  color: #6f8758;
+}
+.monthly-detail-note > span {
+  display: block;
+  font-size: 10px;
+  color: #a28e5b;
+  margin-top: 6px;
+}
+.monthly-detail-note p {
+  font-size: 9px;
+  line-height: 1.75;
+  color: #94a383;
+  margin-top: 7px;
+}
+@media (max-width: 760px) {
+  .monthly-context {
+    font-size: 8px;
+    line-height: 1.6;
+    align-items: flex-start;
+    margin-top: -6px;
+  }
+  .monthly-context button {
+    font-size: 8px;
+  }
+  .monthly-cell-note {
+    font-size: 7px;
+    max-width: 125px;
+  }
+}
+.monthly-issue-button {
+  padding: 0;
+  color: #6b8653;
+  font-size: inherit;
+  text-decoration: underline;
+  text-align: left;
+}
+.notes-panel h3 + ul {
+  margin-bottom: 16px;
+}

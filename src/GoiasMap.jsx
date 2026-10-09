@@ -2,6 +2,7 @@ import { useState } from "react";
 import { MapPin, X, Maximize2, Minus, Plus } from "lucide-react";
 import geometry from "./data/goias.json";
 import { aggregate, normalize } from "../shared/domain.js";
+import { monthlyOverview } from "../shared/monthly.js";
 import { money } from "./format.js";
 
 export const municipalityNames = new Set(
@@ -11,7 +12,13 @@ export function municipalityKey(value) {
   return normalize(String(value ?? "").replace(/\s*[-/]\s*GO\s*$/i, ""));
 }
 
-export default function GoiasMap({ records, selected, onSelect }) {
+export default function GoiasMap({
+  records,
+  source,
+  referenceDate,
+  selected,
+  onSelect,
+}) {
   const [hovered, setHovered] = useState(null);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -34,6 +41,10 @@ export default function GoiasMap({ records, selected, onSelect }) {
     ? (groups.get(normalize(active.name)) ?? [])
     : [];
   const totals = aggregate(activeRecords);
+  const monthly = monthlyOverview(activeRecords, {
+    source,
+    today: referenceDate,
+  });
   const reset = () => {
     setZoom(1);
     setPan({ x: 0, y: 0 });
@@ -163,7 +174,11 @@ export default function GoiasMap({ records, selected, onSelect }) {
                   </text>
                 )}
                 <title>
-                  {m.name} · {count} unidades · {money(aggregate(rows).monthly)}
+                  {m.name} · {count} unidades ·{" "}
+                  {money(
+                    monthlyOverview(rows, { source, today: referenceDate })
+                      .value,
+                  )}
                   /mês
                 </title>
               </g>
@@ -184,7 +199,8 @@ export default function GoiasMap({ records, selected, onSelect }) {
             <strong>{active.name}</strong>
             <span>
               {totals.units} {totals.units === 1 ? "unidade" : "unidades"} ·{" "}
-              {money(totals.monthly)}/mês
+              {money(monthly.value)}/mês
+              {monthly.unresolved > 0 && ` · ${monthly.unresolved} a conferir`}
             </span>
           </div>
           {selected && (
